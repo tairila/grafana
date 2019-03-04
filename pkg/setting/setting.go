@@ -109,6 +109,7 @@ var (
 	AutoAssignOrgRole       string
 	VerifyEmailEnabled      bool
 	LoginHint               string
+	PasswordHint            string
 	DefaultTheme            string
 	DisableLoginForm        bool
 	DisableSignoutMenu      bool
@@ -130,13 +131,15 @@ var (
 	AnonymousOrgRole string
 
 	// Auth proxy settings
-	AuthProxyEnabled        bool
-	AuthProxyHeaderName     string
-	AuthProxyHeaderProperty string
-	AuthProxyAutoSignUp     bool
-	AuthProxyLdapSyncTtl    int
-	AuthProxyWhitelist      string
-	AuthProxyHeaders        map[string]string
+	AuthProxyEnabled              bool
+	AuthProxyHeaderName           string
+	AuthProxyHeaderProperty       string
+	AuthProxyHeaders              map[string]string
+	AuthProxyJsonHeader           bool
+	AuthProxyJsonHeaderProperties map[string]string
+	AuthProxyAutoSignUp           bool
+	AuthProxyLdapSyncTtl          int
+	AuthProxyWhitelist            string
 
 	// Basic Auth
 	BasicAuthEnabled bool
@@ -240,6 +243,12 @@ type Cfg struct {
 
 	// User
 	EditorsCanOwn bool
+
+	// Dataproxy
+	SendUserHeader bool
+
+	// DistributedCache
+	RemoteCacheOptions *RemoteCacheOptions
 }
 
 type CommandLineArgs struct {
@@ -600,6 +609,7 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	dataproxy := iniFile.Section("dataproxy")
 	DataProxyLogging = dataproxy.Key("logging").MustBool(false)
 	DataProxyTimeout = dataproxy.Key("timeout").MustInt(30)
+	cfg.SendUserHeader = dataproxy.Key("send_user_header").MustBool(false)
 
 	// read security settings
 	security := iniFile.Section("security")
@@ -656,6 +666,7 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	AutoAssignOrgRole = users.Key("auto_assign_org_role").In("Editor", []string{"Editor", "Admin", "Viewer"})
 	VerifyEmailEnabled = users.Key("verify_email_enabled").MustBool(false)
 	LoginHint = users.Key("login_hint").String()
+	PasswordHint = users.Key("password_hint").String()
 	DefaultTheme = users.Key("default_theme").String()
 	ExternalUserMngLinkUrl = users.Key("external_manage_link_url").String()
 	ExternalUserMngLinkName = users.Key("external_manage_link_name").String()
@@ -693,10 +704,6 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	AuthProxyEnabled = authProxy.Key("enabled").MustBool(false)
 	AuthProxyHeaderName = authProxy.Key("header_name").String()
 	AuthProxyHeaderProperty = authProxy.Key("header_property").String()
-	AuthProxyAutoSignUp = authProxy.Key("auto_sign_up").MustBool(true)
-	AuthProxyLdapSyncTtl = authProxy.Key("ldap_sync_ttl").MustInt()
-	AuthProxyWhitelist = authProxy.Key("whitelist").String()
-
 	AuthProxyHeaders = make(map[string]string)
 	for _, propertyAndHeader := range util.SplitString(authProxy.Key("headers").String()) {
 		split := strings.SplitN(propertyAndHeader, ":", 2)
@@ -704,6 +711,19 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 			AuthProxyHeaders[split[0]] = split[1]
 		}
 	}
+
+	AuthProxyJsonHeader = authProxy.Key("json_header").MustBool(false)
+	AuthProxyJsonHeaderProperties = make(map[string]string)
+	for _, propertyAndHeader := range util.SplitString(authProxy.Key("json_properties").String()) {
+		split := strings.SplitN(propertyAndHeader, ":", 2)
+		if len(split) == 2 {
+			AuthProxyJsonHeaderProperties[split[0]] = split[1]
+		}
+	}
+
+	AuthProxyAutoSignUp = authProxy.Key("auto_sign_up").MustBool(true)
+	AuthProxyLdapSyncTtl = authProxy.Key("ldap_sync_ttl").MustInt()
+	AuthProxyWhitelist = authProxy.Key("whitelist").String()
 
 	// basic auth
 	authBasic := iniFile.Section("auth.basic")
@@ -779,7 +799,18 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	enterprise := iniFile.Section("enterprise")
 	cfg.EnterpriseLicensePath = enterprise.Key("license_path").MustString(filepath.Join(cfg.DataPath, "license.jwt"))
 
+	cacheServer := iniFile.Section("remote_cache")
+	cfg.RemoteCacheOptions = &RemoteCacheOptions{
+		Name:    cacheServer.Key("type").MustString("database"),
+		ConnStr: cacheServer.Key("connstr").MustString(""),
+	}
+
 	return nil
+}
+
+type RemoteCacheOptions struct {
+	Name    string
+	ConnStr string
 }
 
 func (cfg *Cfg) readSessionConfig() {
