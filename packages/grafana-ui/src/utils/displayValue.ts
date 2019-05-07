@@ -8,21 +8,24 @@ import { getMappedValue } from './valueMappings';
 import { getColorFromHexRgbOrName } from './namedColorsPalette';
 
 // Types
-import { Threshold, ValueMapping, DecimalInfo, DisplayValue, GrafanaTheme, GrafanaThemeType } from '../types';
-import { DecimalCount } from './valueFormats/valueFormats';
+import {
+  Threshold,
+  ValueMapping,
+  DecimalInfo,
+  DisplayValue,
+  GrafanaTheme,
+  GrafanaThemeType,
+  DecimalCount,
+  Field,
+} from '../types';
 
 export type DisplayProcessor = (value: any) => DisplayValue;
 
 export interface DisplayValueOptions {
-  unit?: string;
-  decimals?: DecimalCount;
-  dateFormat?: string; // If set try to convert numbers to date
+  field?: Partial<Field>;
 
-  color?: string;
   mappings?: ValueMapping[];
   thresholds?: Threshold[];
-  prefix?: string;
-  suffix?: string;
 
   // Alternative to empty string
   noValue?: string;
@@ -34,11 +37,12 @@ export interface DisplayValueOptions {
 
 export function getDisplayProcessor(options?: DisplayValueOptions): DisplayProcessor {
   if (options && !_.isEmpty(options)) {
-    const formatFunc = getValueFormat(options.unit || 'none');
+    const field = options.field ? options.field : {};
+    const formatFunc = getValueFormat(field.unit || 'none');
 
     return (value: any) => {
-      const { prefix, suffix, mappings, thresholds, theme } = options;
-      let color = options.color;
+      const { mappings, thresholds, theme } = options;
+      let color = field.color;
 
       let text = _.toString(value);
       let numeric = toNumber(value);
@@ -59,28 +63,17 @@ export function getDisplayProcessor(options?: DisplayValueOptions): DisplayProce
         }
       }
 
-      if (options.dateFormat) {
-        const date = toMoment(value, numeric, options.dateFormat);
+      if (field.dateFormat) {
+        const date = toMoment(value, numeric, field.dateFormat);
         if (date.isValid()) {
-          text = date.format(options.dateFormat);
+          text = date.format(field.dateFormat);
           shouldFormat = false;
         }
       }
 
       if (!isNaN(numeric)) {
         if (shouldFormat && !_.isBoolean(value)) {
-          let decimals;
-          let scaledDecimals = 0;
-
-          if (!options.decimals) {
-            const decimalInfo = getDecimalsForValue(value);
-
-            decimals = decimalInfo.decimals;
-            scaledDecimals = decimalInfo.scaledDecimals;
-          } else {
-            decimals = options.decimals;
-          }
-
+          const { decimals, scaledDecimals } = getDecimalsForValue(value, field.decimals);
           text = formatFunc(numeric, decimals, scaledDecimals, options.isUtc);
         }
         if (thresholds && thresholds.length > 0) {
@@ -90,12 +83,6 @@ export function getDisplayProcessor(options?: DisplayValueOptions): DisplayProce
 
       if (!text) {
         text = options.noValue ? options.noValue : '';
-      }
-      if (prefix) {
-        text = prefix + text;
-      }
-      if (suffix) {
-        text = text + suffix;
       }
       return { text, numeric, color };
     };
@@ -159,7 +146,12 @@ export function getColorFromThreshold(value: number, thresholds: Threshold[], th
   return getColorFromHexRgbOrName(thresholds[0].color, themeType);
 }
 
-export function getDecimalsForValue(value: number): DecimalInfo {
+export function getDecimalsForValue(value: number, decimalOverride?: DecimalCount): DecimalInfo {
+  if (_.isNumber(decimalOverride)) {
+    // It's important that scaledDecimals is null here
+    return { decimals: decimalOverride, scaledDecimals: null };
+  }
+
   const delta = value / 2;
   let dec = -Math.floor(Math.log(delta) / Math.LN10);
 
